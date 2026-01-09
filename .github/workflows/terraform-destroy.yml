@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: INFRA
+        working-directory: infra
 
     env:
       TF_IN_AUTOMATION: "true"
