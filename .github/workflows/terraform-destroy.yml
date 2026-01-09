@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: infra
+        working-directory: infra/.github/workflows/terraform-destroy.yml
 
     env:
       TF_IN_AUTOMATION: "true"
