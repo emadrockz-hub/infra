@@ -1,0 +1,49 @@
+name: Deploy to EC2 (Docker Compose)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload repo to EC2
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_rsa" \
+            ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/app
+
+      - name: Deploy on EC2
+        env:
+          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+            set -e
+            cd ~/app
+
+            # Write .env on the server (DO NOT commit secrets)
+            cat > .env << ENVEOF
+SA_PASSWORD=${SA_PASSWORD}
+ENVEOF
+
+            docker compose --env-file .env up -d --build
+
+            echo "===== docker compose ps ====="
+            docker compose ps
+
+            echo "===== health check ====="
+            curl -fsS http://localhost:8082/api/health
+          EOF
