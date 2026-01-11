@@ -25,7 +25,6 @@ jobs:
           rsync -az --delete \
             -e "ssh -i ~/.ssh/id_rsa" \
             ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/app
-
       - name: Deploy on EC2
         env:
           SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
