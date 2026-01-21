@@ -10,8 +10,10 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -27,31 +29,35 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure -input=false -no-color
 
-      - name: Pull state
-        run: terraform state pull > state.json
-
-      - name: Remove invalid attribute force_destroy from state
+      - name: Repair state (pull -> edit -> push)
+        shell: bash
         run: |
-          python - << 'PY'
+          set -euo pipefail
+
+          terraform state pull > state.json
+
+          python3 - << 'PY'
           import json
+
           p = "state.json"
-          data = json.load(open(p, "r", encoding="utf-8"))
+          with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
           changed = 0
           for res in data.get("resources", []):
-              if res.get("type") == "aws_instance" and res.get("name") == "nginx_ec2":
-                  for inst in res.get("instances", []):
-                      attrs = inst.get("attributes", {})
-                      if "force_destroy" in attrs:
-                          del attrs["force_destroy"]
-                          changed += 1
+            if res.get("type") == "aws_instance" and res.get("name") == "nginx_ec2":
+              for inst in res.get("instances", []):
+                attrs = inst.get("attributes", {})
+                if "force_destroy" in attrs:
+                  del attrs["force_destroy"]
+                  changed += 1
 
           if changed == 0:
-              print("No force_destroy found to remove.")
+            print("No force_destroy found. Nothing to change.")
           else:
-              json.dump(data, open(p, "w", encoding="utf-8"), indent=2)
-              print(f"Removed force_destroy from {changed} instance(s).")
+            with open(p, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+            print(f"Removed force_destroy from {changed} instance(s).")
           PY
 
-      - name: Push repaired state
-        run: terraform state push state.json
+          terraform state push state.json
