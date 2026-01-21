@@ -1,4 +1,4 @@
-name: Terraform State Repair (remove force_destroy)
+name: Terraform State Repair (remove force_destroy + bump serial)
 
 on:
   workflow_dispatch:
@@ -29,63 +29,48 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure -input=false -no-color
 
-      - name: Repair state (pull -> edit -> bump serial -> push) with retries
+      - name: Pull state
+        shell: bash
+        run: terraform state pull > state.json
+
+      - name: Remove force_destroy and bump serial
         shell: bash
         run: |
-          set -euo pipefail
+          python3 - << 'PY'
+          import json
 
-          for attempt in 1 2 3 4 5; do
-            echo "=== Attempt $attempt ==="
+          p = "state.json"
+          with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-            terraform state pull > state.json
+          old_serial = int(data.get("serial", 0))
+          changed = 0
 
-            # Edit state + bump serial if changed
-            python3 - << 'PY'
-            import json
+          for res in data.get("resources", []):
+            if res.get("type") == "aws_instance" and res.get("name") == "nginx_ec2":
+              for inst in res.get("instances", []):
+                attrs = inst.get("attributes", {})
+                if "force_destroy" in attrs:
+                  del attrs["force_destroy"]
+                  changed += 1
 
-            p = "state.json"
-            with open(p, "r", encoding="utf-8") as f:
-              data = json.load(f)
+          if changed == 0:
+            print("No force_destroy found. Nothing to change.")
+          else:
+            data["serial"] = old_serial + 1
+            with open(p, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+            print(f"Removed force_destroy from {changed} instance(s). Serial {old_serial} -> {old_serial+1}")
+          PY
 
-            changed = 0
-            for res in data.get("resources", []):
-              if res.get("type") == "aws_instance" and res.get("name") == "nginx_ec2":
-                for inst in res.get("instances", []):
-                  attrs = inst.get("attributes", {})
-                  if "force_destroy" in attrs:
-                    del attrs["force_destroy"]
-                    changed += 1
+      - name: Verify serial before push
+        shell: bash
+        run: |
+          python3 - << 'PY'
+          import json
+          d=json.load(open("state.json","r",encoding="utf-8"))
+          print("STATE SERIAL NOW =", d.get("serial"))
+          PY
 
-            if changed == 0:
-              print("No force_destroy found. Nothing to change.")
-              # Mark no-change so bash can skip pushing
-              with open("changed.flag", "w", encoding="utf-8") as f:
-                f.write("0")
-            else:
-              # Bump serial so terraform accepts this as a newer state
-              old_serial = int(data.get("serial", 0))
-              data["serial"] = old_serial + 1
-              with open(p, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-              print(f"Removed force_destroy from {changed} instance(s). Serial {old_serial} -> {old_serial+1}")
-              with open("changed.flag", "w", encoding="utf-8") as f:
-                f.write("1")
-            PY
-
-            if [[ "$(cat changed.flag)" == "0" ]]; then
-              echo "No changes needed. Exiting successfully."
-              exit 0
-            fi
-
-            # Try pushing updated state
-            if terraform state push state.json; then
-              echo "State push succeeded."
-              exit 0
-            else
-              echo "State push failed. Retrying after 8 seconds..."
-              sleep 8
-            fi
-          done
-
-          echo "State repair failed after multiple attempts."
-          exit 1
+      - name: Push repaired state
+        run: terraform state push state.json
