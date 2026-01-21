@@ -48,8 +48,9 @@ jobs:
         run: |
           rm -rf .terraform || true
 
-      - name: Terraform Init (reconfigure)
-        run: terraform init -reconfigure -input=false -no-color
+      - name: Terraform Init (reconfigure + upgrade)
+        run: terraform init -reconfigure -upgrade -input=false -no-color
+
 
       - name: Debug - Terraform & Provider versions
         run: |
