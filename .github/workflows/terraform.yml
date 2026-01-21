@@ -1,11 +1,14 @@
+
 name: Terraform Apply (OIDC)
 
 on:
+  workflow_dispatch:
   push:
     branches: ["main"]
     paths:
       - "**/*.tf"
       - ".github/workflows/terraform.yml"
+
 
 permissions:
   id-token: write
