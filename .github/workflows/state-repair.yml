@@ -29,35 +29,63 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure -input=false -no-color
 
-      - name: Repair state (pull -> edit -> push)
+      - name: Repair state (pull -> edit -> bump serial -> push) with retries
         shell: bash
         run: |
           set -euo pipefail
 
-          terraform state pull > state.json
+          for attempt in 1 2 3 4 5; do
+            echo "=== Attempt $attempt ==="
 
-          python3 - << 'PY'
-          import json
+            terraform state pull > state.json
 
-          p = "state.json"
-          with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            # Edit state + bump serial if changed
+            python3 - << 'PY'
+            import json
 
-          changed = 0
-          for res in data.get("resources", []):
-            if res.get("type") == "aws_instance" and res.get("name") == "nginx_ec2":
-              for inst in res.get("instances", []):
-                attrs = inst.get("attributes", {})
-                if "force_destroy" in attrs:
-                  del attrs["force_destroy"]
-                  changed += 1
+            p = "state.json"
+            with open(p, "r", encoding="utf-8") as f:
+              data = json.load(f)
 
-          if changed == 0:
-            print("No force_destroy found. Nothing to change.")
-          else:
-            with open(p, "w", encoding="utf-8") as f:
-              json.dump(data, f, indent=2)
-            print(f"Removed force_destroy from {changed} instance(s).")
-          PY
+            changed = 0
+            for res in data.get("resources", []):
+              if res.get("type") == "aws_instance" and res.get("name") == "nginx_ec2":
+                for inst in res.get("instances", []):
+                  attrs = inst.get("attributes", {})
+                  if "force_destroy" in attrs:
+                    del attrs["force_destroy"]
+                    changed += 1
 
-          terraform state push state.json
+            if changed == 0:
+              print("No force_destroy found. Nothing to change.")
+              # Mark no-change so bash can skip pushing
+              with open("changed.flag", "w", encoding="utf-8") as f:
+                f.write("0")
+            else:
+              # Bump serial so terraform accepts this as a newer state
+              old_serial = int(data.get("serial", 0))
+              data["serial"] = old_serial + 1
+              with open(p, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+              print(f"Removed force_destroy from {changed} instance(s). Serial {old_serial} -> {old_serial+1}")
+              with open("changed.flag", "w", encoding="utf-8") as f:
+                f.write("1")
+            PY
+
+            if [[ "$(cat changed.flag)" == "0" ]]; then
+              echo "No changes needed. Exiting successfully."
+              exit 0
+            fi
+
+            # Try pushing updated state
+            if terraform state push state.json; then
+              echo "State push succeeded."
+              exit 0
+            else
+              echo "State push failed. Retrying after 8 seconds..."
+              sleep 8
+            fi
+          done
+
+          echo "State repair failed after multiple attempts."
+          exit 1
