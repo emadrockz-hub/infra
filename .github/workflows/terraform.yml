@@ -1,4 +1,3 @@
-
 name: Terraform Apply (OIDC)
 
 on:
@@ -8,7 +7,6 @@ on:
     paths:
       - "**/*.tf"
       - ".github/workflows/terraform.yml"
-
 
 permissions:
   id-token: write
@@ -30,7 +28,8 @@ jobs:
       TF_VAR_github_deploy_pubkey: ${{ secrets.DEPLOY_PUBLIC_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -43,14 +42,12 @@ jobs:
         with:
           terraform_version: 1.6.0
 
-      # Optional but helps prevent stale init/plugin directories
       - name: Clean Terraform working dir
         run: |
           rm -rf .terraform || true
 
-      - name: Terraform Init (reconfigure + upgrade)
+      - name: Terraform Init (reconfigure + upgrade providers)
         run: terraform init -reconfigure -upgrade -input=false -no-color
-
 
       - name: Debug - Terraform & Provider versions
         run: |
