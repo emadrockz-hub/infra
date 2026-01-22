@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.110.0, < 6.0.0"
+      version = ">= 6.0.0, < 7.0.0"
     }
   }
 }
@@ -97,7 +97,6 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # SSH only from YOUR IP/CIDR (passed via TF_VAR_ssh_cidr)
   ingress {
     description = "SSH"
     from_port   = 22
