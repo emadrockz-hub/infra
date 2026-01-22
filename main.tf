@@ -97,7 +97,7 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # SSH only from YOUR IP
+  # SSH only from YOUR IP/CIDR (passed via TF_VAR_ssh_cidr)
   ingress {
     description = "SSH"
     from_port   = 22
@@ -124,8 +124,6 @@ resource "aws_instance" "nginx_ec2" {
   associate_public_ip_address = true
   key_name                    = var.key_pair_name
 
-  # Ensures GitHub Actions deploy key is always installed on new instances.
-  # Pass TF_VAR_github_deploy_pubkey from GitHub Actions (secret containing the *public* key).
   user_data = <<-EOF
     #!/bin/bash
     set -e
